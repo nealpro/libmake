@@ -13,10 +13,15 @@ void dag_free(dag_t *dag)
 	if (!dag)
 		return;
 	for (size_t i = 0; i < dag->num_nodes; i++) {
-		free(dag->nodes[i]->name);
-		free(dag->nodes[i]->deps);
-		free(dag->nodes[i]);
+		dag_node_t *node = dag->nodes[i];
+		for (size_t j = 0; j < node->num_commands; j++)
+			free(node->commands[j]);
+		free(node->commands);
+		free(node->name);
+		free(node->deps);
+		free(node);
 	}
+
 	free(dag->nodes);
 	free(dag);
 }
@@ -61,5 +66,19 @@ bool dag_add_edge(dag_t *dag, const char *target, const char *dependency)
 	}
 
 	t_node->deps[t_node->num_deps++] = d_node;
+	return true;
+}
+
+bool dag_node_add_command(dag_node_t *node, const char *command)
+{
+	if (node->num_commands >= node->cmd_capacity) {
+		node->cmd_capacity = node->cmd_capacity == 0 ? 4 :
+		                                               node->cmd_capacity * 2;
+		node->commands = realloc(
+		        node->commands, node->cmd_capacity * sizeof(char *));
+		if (!node->commands)
+			return false;
+	}
+	node->commands[node->num_commands++] = strdup(command);
 	return true;
 }
