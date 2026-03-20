@@ -5,18 +5,18 @@
 #include <stdbool.h>
 
 typedef struct dag_node {
-    char *name;
-    struct dag_node **deps;
-    size_t num_deps;
-    size_t capacity;
-    bool visited;
-    bool resolved;
+	char *name;
+	struct dag_node **deps;
+	size_t num_deps;
+	size_t capacity;
+	bool visited;
+	bool resolved;
 } dag_node_t;
 
 typedef struct {
-    dag_node_t **nodes;
-    size_t num_nodes;
-    size_t capacity;
+	dag_node_t **nodes;
+	size_t num_nodes;
+	size_t capacity;
 } dag_t;
 
 dag_t *dag_create(void);
