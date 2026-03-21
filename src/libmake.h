@@ -2,6 +2,7 @@
 #define LIBMAKE_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 typedef struct lmk lmk_t;
 
@@ -34,5 +35,19 @@ int lmk_build(lmk_t *lmk, const char *target);
  * Reset traversal state so the same lmk_t can be used for another build.
  */
 void lmk_reset(lmk_t *lmk);
+
+/*
+ * Write the build graph as JSON to the given stream.
+ */
+void lmk_dump_graph_json(lmk_t *lmk, FILE *out);
+
+/*
+ * Explain what a build would do without executing anything.
+ *
+ * Walks the dependency graph for `target` and writes a JSON object to `out`
+ * describing which nodes need rebuilding and why.  Returns 0 on success,
+ * non-zero if the target is not found or a cycle is detected.
+ */
+int lmk_explain_build(lmk_t *lmk, const char *target, FILE *out);
 
 #endif /* LIBMAKE_H */

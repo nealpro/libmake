@@ -55,3 +55,66 @@ sh tests/posix-core/run.sh
 
 This creates an executable baseline to expand incrementally with additional
 POSIX features as they are implemented.
+
+## MCP server
+
+An MCP (Model Context Protocol) server exposes the build graph and build
+execution to LLMs, enabling agentic build debugging and tool orchestration.
+
+### Setup
+
+```sh
+uv venv mcp/.venv
+source mcp/.venv/bin/activate
+uv pip install -r mcp/requirements.txt
+```
+
+### Running
+
+Test interactively with the MCP Inspector:
+
+```sh
+mcp dev mcp/server.py
+```
+
+Configure in Claude Code or Claude Desktop (`settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "libmake": {
+      "command": "mcp/.venv/bin/python3",
+      "args": ["mcp/server.py"],
+      "cwd": "/path/to/libmake"
+    }
+  }
+}
+```
+
+Set `LIBMAKE_PROJECT_DIR` to override the working directory if needed.
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_targets` | List all build targets with dependency and command counts |
+| `show_target` | Show full detail for a target (commands, deps, file mtime) |
+| `build` | Trigger a build and return exit code, stdout, stderr, duration |
+| `dry_run` | Explain what a build would do without executing |
+| `visualize_graph` | Generate a Mermaid diagram of the dependency graph |
+| `clean` | Run `libmake clean` to remove build artifacts |
+
+### Resources
+
+| URI | Description |
+|-----|-------------|
+| `libmake://graph` | Full build graph as JSON |
+| `libmake://build-log` | Most recent build output |
+| `libmake://source/{filename}` | Read a source file from `src/` |
+
+### CLI introspection flags
+
+The MCP server relies on two flags added to the `libmake` binary:
+
+- `./libmake --dump-graph` — serialize the build graph as JSON
+- `./libmake --dry-run <target>` — explain rebuild decisions as JSON
