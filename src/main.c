@@ -13,6 +13,10 @@ int main(int argc, char **argv)
 	         (const char *[]){"libmake"}, 1,
 	         NULL, 0);
 
+	lmk_rule(lmk, "clean",
+	         NULL, 0,
+	         (const char *[]){"rm -f libmake *.o"}, 1);
+
 	lmk_rule(lmk, "libmake",
 	         (const char *[]){"main.o", "dag.o", "exec.o", "libmake.o"}, 4,
 	         (const char *[]){"cc -o libmake main.o dag.o exec.o libmake.o"}, 1);
