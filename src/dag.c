@@ -44,8 +44,8 @@ dag_node_t *dag_add_node(dag_t *dag, const char *name)
 	}
 	if (dag->num_nodes >= dag->capacity) {
 		dag->capacity = dag->capacity == 0 ? 16 : dag->capacity * 2;
-		dag->nodes = realloc(
-		        dag->nodes, dag->capacity * sizeof(dag_node_t *));
+		dag->nodes = realloc(dag->nodes,
+				     dag->capacity * sizeof(dag_node_t *));
 	}
 	dag_node_t *node = calloc(1, sizeof(dag_node_t));
 	node->name = strdup(name);
@@ -59,10 +59,10 @@ bool dag_add_edge(dag_t *dag, const char *target, const char *dependency)
 	dag_node_t *d_node = dag_add_node(dag, dependency);
 
 	if (t_node->num_deps >= t_node->capacity) {
-		t_node->capacity = t_node->capacity == 0 ? 4 :
-		                                           t_node->capacity * 2;
-		t_node->deps = realloc(
-		        t_node->deps, t_node->capacity * sizeof(dag_node_t *));
+		t_node->capacity =
+			t_node->capacity == 0 ? 4 : t_node->capacity * 2;
+		t_node->deps = realloc(t_node->deps,
+				       t_node->capacity * sizeof(dag_node_t *));
 	}
 
 	t_node->deps[t_node->num_deps++] = d_node;
@@ -72,10 +72,10 @@ bool dag_add_edge(dag_t *dag, const char *target, const char *dependency)
 bool dag_node_add_command(dag_node_t *node, const char *command)
 {
 	if (node->num_commands >= node->cmd_capacity) {
-		node->cmd_capacity = node->cmd_capacity == 0 ? 4 :
-		                                               node->cmd_capacity * 2;
-		node->commands = realloc(
-		        node->commands, node->cmd_capacity * sizeof(char *));
+		node->cmd_capacity =
+			node->cmd_capacity == 0 ? 4 : node->cmd_capacity * 2;
+		node->commands = realloc(node->commands,
+					 node->cmd_capacity * sizeof(char *));
 		if (!node->commands)
 			return false;
 	}

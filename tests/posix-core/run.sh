@@ -4,6 +4,9 @@ set -eu
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/libmake-posix.XXXXXX")
 runner="$tmp_root/lmk_runner"
+cc=${CC:-cc}
+cflags=${CFLAGS:-}
+ldflags=${LDFLAGS:-}
 
 cleanup()
 {
@@ -64,11 +67,12 @@ msg=$3
 }
 
 echo "[1/4] building lmk_runner"
-cc -I"$repo_dir/src" -o "$runner" \
+"$cc" $cflags -I"$repo_dir/src" -o "$runner" \
 "$repo_dir/tests/posix-core/lmk_runner.c" \
 "$repo_dir/src/libmake.c" \
 "$repo_dir/src/dag.c" \
-"$repo_dir/src/exec.c"
+"$repo_dir/src/exec.c" \
+$ldflags
 
 echo "[2/4] basic build + up-to-date + stale-rebuild"
 base_basic="$tmp_root/base-basic"

@@ -28,9 +28,8 @@ void lmk_free(lmk_t *lmk)
 	free(lmk);
 }
 
-void lmk_rule(lmk_t *lmk, const char *target,
-              const char **deps, size_t num_deps,
-              const char **commands, size_t num_commands)
+void lmk_rule(lmk_t *lmk, const char *target, const char **deps,
+	      size_t num_deps, const char **commands, size_t num_commands)
 {
 	dag_node_t *node = dag_add_node(lmk->dag, target);
 	for (size_t i = 0; i < num_deps; i++)
@@ -69,9 +68,8 @@ static int build_node(dag_node_t *node)
 	if (node->resolved)
 		return 0;
 	if (node->visited) {
-		fprintf(stderr,
-		        "libmake: circular dependency on '%s'\n",
-		        node->name);
+		fprintf(stderr, "libmake: circular dependency on '%s'\n",
+			node->name);
 		return 1;
 	}
 	node->visited = true;
@@ -85,9 +83,8 @@ static int build_node(dag_node_t *node)
 	if (needs_rebuild(node)) {
 		int ret = exec_run_node(node);
 		if (ret != 0) {
-			fprintf(stderr,
-			        "libmake: recipe for '%s' failed\n",
-			        node->name);
+			fprintf(stderr, "libmake: recipe for '%s' failed\n",
+				node->name);
 			return ret;
 		}
 	}
@@ -100,9 +97,8 @@ int lmk_build(lmk_t *lmk, const char *target)
 {
 	dag_node_t *node = dag_get_node(lmk->dag, target);
 	if (!node) {
-		fprintf(stderr,
-		        "libmake: no rule to make target '%s'\n",
-		        target);
+		fprintf(stderr, "libmake: no rule to make target '%s'\n",
+			target);
 		return 1;
 	}
 	return build_node(node);
@@ -176,8 +172,9 @@ void lmk_dump_graph_json(lmk_t *lmk, FILE *out)
 
 typedef struct {
 	const char *node_name;
-	const char *reason; /* "file_missing", "dependency_newer", "up_to_date" */
-	const char *dep;    /* triggering dep name, or NULL */
+	const char
+		*reason; /* "file_missing", "dependency_newer", "up_to_date" */
+	const char *dep; /* triggering dep name, or NULL */
 } explain_entry_t;
 
 typedef struct {
@@ -194,25 +191,22 @@ static void explain_list_init(explain_list_t *list)
 }
 
 static void explain_list_push(explain_list_t *list, const char *node_name,
-                              const char *reason, const char *dep)
+			      const char *reason, const char *dep)
 {
 	if (list->count == list->capacity) {
 		size_t newcap = list->capacity ? list->capacity * 2 : 8;
-		list->entries =
-		    realloc(list->entries, newcap * sizeof(explain_entry_t));
+		list->entries = realloc(list->entries,
+					newcap * sizeof(explain_entry_t));
 		list->capacity = newcap;
 	}
 	list->entries[list->count++] =
-	    (explain_entry_t){node_name, reason, dep};
+		(explain_entry_t){node_name, reason, dep};
 }
 
-static void explain_list_free(explain_list_t *list)
-{
-	free(list->entries);
-}
+static void explain_list_free(explain_list_t *list) { free(list->entries); }
 
 static int explain_node(dag_node_t *node, explain_list_t *plan,
-                        explain_list_t *skipped)
+			explain_list_t *skipped)
 {
 	if (node->resolved)
 		return 0;
@@ -255,7 +249,7 @@ static int explain_node(dag_node_t *node, explain_list_t *plan,
 }
 
 static void write_explain_list(FILE *out, const explain_list_t *list,
-                               bool include_action)
+			       bool include_action)
 {
 	for (size_t i = 0; i < list->count; i++) {
 		const explain_entry_t *e = &list->entries[i];
@@ -281,7 +275,7 @@ int lmk_explain_build(lmk_t *lmk, const char *target, FILE *out)
 	dag_node_t *node = dag_get_node(lmk->dag, target);
 	if (!node) {
 		fprintf(stderr, "libmake: no rule to make target '%s'\n",
-		        target);
+			target);
 		return 1;
 	}
 
@@ -293,8 +287,8 @@ int lmk_explain_build(lmk_t *lmk, const char *target, FILE *out)
 	lmk_reset(lmk);
 
 	if (ret != 0) {
-		fprintf(stderr,
-		        "libmake: circular dependency on '%s'\n", target);
+		fprintf(stderr, "libmake: circular dependency on '%s'\n",
+			target);
 		explain_list_free(&plan);
 		explain_list_free(&skipped);
 		return ret;

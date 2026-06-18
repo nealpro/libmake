@@ -1,0 +1,11 @@
+pre-commit:
+  commands:
+    clang-format:
+      run: clang-format --dry-run --Werror src/*.c src/*.h
+
+pre-push:
+  commands:
+    build:
+      run: make clean && make
+    posix-core:
+      run: sh tests/posix-core/run.sh

@@ -18,9 +18,8 @@ void lmk_free(lmk_t *lmk);
  * commands   — array of shell commands (may be NULL if num_commands == 0)
  * num_commands — number of commands
  */
-void lmk_rule(lmk_t *lmk, const char *target,
-              const char **deps, size_t num_deps,
-              const char **commands, size_t num_commands);
+void lmk_rule(lmk_t *lmk, const char *target, const char **deps,
+	      size_t num_deps, const char **commands, size_t num_commands);
 
 /*
  * Build a target and all of its dependencies.

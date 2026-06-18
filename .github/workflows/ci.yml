@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-format:
+    name: Build, test, and format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang-format
+
+      - name: Build
+        run: |
+          make clean
+          make
+
+      - name: Run POSIX core tests
+        run: sh tests/posix-core/run.sh
+
+      - name: Check formatting
+        run: clang-format --dry-run --Werror src/*.c src/*.h
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential lcov
+
+      - name: Build with coverage instrumentation
+        run: |
+          make clean
+          make CC=gcc CFLAGS="--coverage -O0 -g" LDFLAGS="--coverage"
+
+      - name: Run POSIX core tests with coverage instrumentation
+        run: |
+          CC=gcc CFLAGS="--coverage -O0 -g" LDFLAGS="--coverage" sh tests/posix-core/run.sh
+
+      - name: Collect coverage
+        run: |
+          lcov --capture --directory . --output-file lcov.info
+          lcov --remove lcov.info '/usr/*' '*/tests/*' --output-file lcov.info
+          lcov --list lcov.info
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v7
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
