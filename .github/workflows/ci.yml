@@ -42,6 +42,9 @@ jobs:
       - name: Run POSIX core tests
         run: sh tests/posix-core/run.sh
 
+      - name: Run API tests
+        run: sh tests/api/run.sh
+
   format:
     name: Format
     runs-on: ubuntu-latest
@@ -74,6 +77,10 @@ jobs:
       - name: Run POSIX core tests with coverage instrumentation
         run: |
           CC=gcc CFLAGS="--coverage -O0 -g" LDFLAGS="--coverage" LMK_POSIX_TMP_ROOT=.coverage/posix-core LMK_POSIX_KEEP_TMP=1 sh tests/posix-core/run.sh
+
+      - name: Run API tests with coverage instrumentation
+        run: |
+          CC=gcc CFLAGS="--coverage -O0 -g" LDFLAGS="--coverage" LMK_API_TMP_ROOT=.coverage/api LMK_API_KEEP_TMP=1 sh tests/api/run.sh
 
       - name: Collect coverage
         run: |
