@@ -2,14 +2,25 @@
 set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+if [ "${LMK_POSIX_TMP_ROOT:-}" ]; then
+tmp_root=$LMK_POSIX_TMP_ROOT
+rm -rf "$tmp_root"
+mkdir -p "$tmp_root"
+tmp_root=$(CDPATH= cd -- "$tmp_root" && pwd)
+else
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/libmake-posix.XXXXXX")
+fi
 runner="$tmp_root/lmk_runner"
+obj_dir="$tmp_root/obj"
 cc=${CC:-cc}
 cflags=${CFLAGS:-}
 ldflags=${LDFLAGS:-}
 
 cleanup()
 {
+if [ "${LMK_POSIX_KEEP_TMP:-}" = "1" ]; then
+return
+fi
 rm -rf "$tmp_root"
 }
 trap cleanup EXIT INT TERM HUP
@@ -67,12 +78,20 @@ msg=$3
 }
 
 echo "[1/4] building lmk_runner"
-"$cc" $cflags -I"$repo_dir/src" -o "$runner" \
-"$repo_dir/tests/posix-core/lmk_runner.c" \
-"$repo_dir/src/libmake.c" \
-"$repo_dir/src/dag.c" \
-"$repo_dir/src/exec.c" \
-$ldflags
+mkdir -p "$obj_dir"
+"$cc" $cflags -I"$repo_dir/src" -c \
+"$repo_dir/tests/posix-core/lmk_runner.c" -o "$obj_dir/lmk_runner.o"
+"$cc" $cflags -I"$repo_dir/src" -c \
+"$repo_dir/src/libmake.c" -o "$obj_dir/libmake.o"
+"$cc" $cflags -I"$repo_dir/src" -c \
+"$repo_dir/src/dag.c" -o "$obj_dir/dag.o"
+"$cc" $cflags -I"$repo_dir/src" -c \
+"$repo_dir/src/exec.c" -o "$obj_dir/exec.o"
+"$cc" $ldflags -o "$runner" \
+"$obj_dir/lmk_runner.o" \
+"$obj_dir/libmake.o" \
+"$obj_dir/dag.o" \
+"$obj_dir/exec.o"
 
 echo "[2/4] basic build + up-to-date + stale-rebuild"
 base_basic="$tmp_root/base-basic"

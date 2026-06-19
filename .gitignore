@@ -1,0 +1,12 @@
+.mcp.json
+.venv/
+.coverage
+
+mcp/.venv/
+mcp/__pycache__/
+
+bin/
+*.o
+libmake
+
+*.gcno
