@@ -78,7 +78,7 @@ jobs:
       - name: Collect coverage
         run: |
           lcov --capture --directory .coverage --output-file lcov.info
-          lcov --remove lcov.info '/usr/*' '*/tests/*' --output-file lcov.info
+          lcov --remove lcov.info '*/tests/*' --output-file lcov.info
           lcov --list lcov.info
 
       - name: Upload coverage
