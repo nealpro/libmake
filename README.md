@@ -1,7 +1,6 @@
 # libmake
 
 [![codecov](https://codecov.io/github/nealpro/libmake/graph/badge.svg?token=5HVNS8R0EO)](https://codecov.io/github/nealpro/libmake)
-[![codecov](https://codecov.io/github/nealpro/libmake/graphs/tree.svg?token=5HVNS8R0EO)](https://codecov.io/github/nealpro/libmake)
 
 Embeddable build automation tool similar to GNU `make`.
 
@@ -121,3 +120,7 @@ The MCP server relies on two flags added to the `libmake` binary:
 
 - `./libmake --dump-graph` — serialize the build graph as JSON
 - `./libmake --dry-run <target>` — explain rebuild decisions as JSON
+
+# Code Coverage
+
+[![codecov](https://codecov.io/github/nealpro/libmake/graphs/sunburst.svg?token=5HVNS8R0EO)](https://codecov.io/github/nealpro/libmake)
