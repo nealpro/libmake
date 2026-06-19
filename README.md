@@ -1,5 +1,8 @@
 # libmake
 
+[![codecov](https://codecov.io/github/nealpro/libmake/graph/badge.svg?token=5HVNS8R0EO)](https://codecov.io/github/nealpro/libmake)
+[![codecov](https://codecov.io/github/nealpro/libmake/graphs/tree.svg?token=5HVNS8R0EO)](https://codecov.io/github/nealpro/libmake)
+
 Embeddable build automation tool similar to GNU `make`.
 
 `libmake` currently implements a focused subset of POSIX `make`: explicit
