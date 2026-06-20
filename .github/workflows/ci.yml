@@ -85,8 +85,9 @@ jobs:
       - name: Collect coverage
         run: |
           lcov --capture --directory .coverage --output-file lcov.info
-          lcov --remove lcov.info '*/tests/*' --output-file lcov.info
           lcov --list lcov.info
+          grep -E 'SF:.*/tests/api/api_tests\.c$' lcov.info
+          grep -E 'SF:.*/tests/posix-core/lmk_runner\.c$' lcov.info
 
       - name: Upload coverage
         uses: codecov/codecov-action@v7

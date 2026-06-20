@@ -4,25 +4,63 @@
 #include <string.h>
 
 static void setup_rules(lmk_t *lmk);
+static void usage(const char *prog)
+{
+	fprintf(stderr,
+		"usage: %s [--dump-graph] [--dry-run] [-f makefile] "
+		"[target]\n",
+		prog);
+}
 
 int main(int argc, char **argv)
 {
 	bool dump_graph = false;
 	bool dry_run = false;
-	const char *target = "all";
+	const char *makefile = NULL;
+	const char *target = NULL;
 
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--dump-graph") == 0) {
 			dump_graph = true;
 		} else if (strcmp(argv[i], "--dry-run") == 0) {
 			dry_run = true;
+		} else if (strcmp(argv[i], "-f") == 0) {
+			if (i + 1 >= argc) {
+				usage(argv[0]);
+				return 2;
+			}
+			makefile = argv[++i];
 		} else {
+			if (target) {
+				usage(argv[0]);
+				return 2;
+			}
 			target = argv[i];
 		}
 	}
 
 	lmk_t *lmk = lmk_create();
-	setup_rules(lmk);
+	if (!lmk) {
+		fprintf(stderr, "libmake: out of memory\n");
+		return 1;
+	}
+
+	if (makefile) {
+		if (lmk_load_makefile(lmk, makefile) != 0) {
+			lmk_free(lmk);
+			return 1;
+		}
+	} else {
+		setup_rules(lmk);
+	}
+
+	if (!target)
+		target = lmk_default_target(lmk);
+	if (!target) {
+		fprintf(stderr, "libmake: no default target\n");
+		lmk_free(lmk);
+		return 1;
+	}
 
 	int ret = 0;
 	if (dump_graph) {

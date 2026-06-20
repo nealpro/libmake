@@ -12,6 +12,7 @@ typedef struct dag_node {
 	struct dag_node **deps;
 	size_t num_deps;
 	size_t capacity;
+	bool has_rule;
 	bool visited;
 	bool resolved;
 } dag_node_t;

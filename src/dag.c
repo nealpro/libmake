@@ -43,12 +43,23 @@ dag_node_t *dag_add_node(dag_t *dag, const char *name)
 		return existing;
 	}
 	if (dag->num_nodes >= dag->capacity) {
-		dag->capacity = dag->capacity == 0 ? 16 : dag->capacity * 2;
-		dag->nodes = realloc(dag->nodes,
-				     dag->capacity * sizeof(dag_node_t *));
+		size_t new_capacity =
+			dag->capacity == 0 ? 16 : dag->capacity * 2;
+		dag_node_t **new_nodes = realloc(
+			dag->nodes, new_capacity * sizeof(dag_node_t *));
+		if (!new_nodes)
+			return NULL;
+		dag->nodes = new_nodes;
+		dag->capacity = new_capacity;
 	}
 	dag_node_t *node = calloc(1, sizeof(dag_node_t));
+	if (!node)
+		return NULL;
 	node->name = strdup(name);
+	if (!node->name) {
+		free(node);
+		return NULL;
+	}
 	dag->nodes[dag->num_nodes++] = node;
 	return node;
 }
@@ -57,12 +68,18 @@ bool dag_add_edge(dag_t *dag, const char *target, const char *dependency)
 {
 	dag_node_t *t_node = dag_add_node(dag, target);
 	dag_node_t *d_node = dag_add_node(dag, dependency);
+	if (!t_node || !d_node)
+		return false;
 
 	if (t_node->num_deps >= t_node->capacity) {
-		t_node->capacity =
+		size_t new_capacity =
 			t_node->capacity == 0 ? 4 : t_node->capacity * 2;
-		t_node->deps = realloc(t_node->deps,
-				       t_node->capacity * sizeof(dag_node_t *));
+		dag_node_t **new_deps = realloc(
+			t_node->deps, new_capacity * sizeof(dag_node_t *));
+		if (!new_deps)
+			return false;
+		t_node->deps = new_deps;
+		t_node->capacity = new_capacity;
 	}
 
 	t_node->deps[t_node->num_deps++] = d_node;
@@ -72,13 +89,18 @@ bool dag_add_edge(dag_t *dag, const char *target, const char *dependency)
 bool dag_node_add_command(dag_node_t *node, const char *command)
 {
 	if (node->num_commands >= node->cmd_capacity) {
-		node->cmd_capacity =
+		size_t new_capacity =
 			node->cmd_capacity == 0 ? 4 : node->cmd_capacity * 2;
-		node->commands = realloc(node->commands,
-					 node->cmd_capacity * sizeof(char *));
-		if (!node->commands)
+		char **new_commands =
+			realloc(node->commands, new_capacity * sizeof(char *));
+		if (!new_commands)
 			return false;
+		node->commands = new_commands;
+		node->cmd_capacity = new_capacity;
 	}
-	node->commands[node->num_commands++] = strdup(command);
+	node->commands[node->num_commands] = strdup(command);
+	if (!node->commands[node->num_commands])
+		return false;
+	node->num_commands++;
 	return true;
 }

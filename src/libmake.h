@@ -18,8 +18,24 @@ void lmk_free(lmk_t *lmk);
  * commands   — array of shell commands (may be NULL if num_commands == 0)
  * num_commands — number of commands
  */
+int lmk_rule_checked(lmk_t *lmk, const char *target, const char **deps,
+		     size_t num_deps, const char **commands,
+		     size_t num_commands);
+
 void lmk_rule(lmk_t *lmk, const char *target, const char **deps,
 	      size_t num_deps, const char **commands, size_t num_commands);
+
+/*
+ * Load target rules from a makefile subset:
+ * target/prerequisite lines, semicolon commands, and tab-indented commands.
+ * Returns 0 on success, non-zero on parse or allocation failure.
+ */
+int lmk_load_makefile(lmk_t *lmk, const char *path);
+
+/*
+ * Return the first non-special target loaded into the graph, or NULL if none.
+ */
+const char *lmk_default_target(lmk_t *lmk);
 
 /*
  * Build a target and all of its dependencies.

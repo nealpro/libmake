@@ -5,8 +5,9 @@
 Embeddable build automation tool similar to GNU `make`.
 
 `libmake` currently implements a focused subset of POSIX `make`: explicit
-rules, ordered prerequisite traversal, mtime rebuild checks, recipe execution,
-and basic diagnostics.
+rules loaded through the C API or a minimal Makefile parser, ordered
+prerequisite traversal, mtime rebuild checks, recipe execution, and basic
+diagnostics.
 
 ## POSIX error handling status (core)
 
@@ -14,6 +15,8 @@ Current status against POSIX `make` reference (proprietary, not in the repositor
 
 - Implemented now:
   - Recursive prerequisite traversal and rebuild-on-stale/missing target logic.
+  - Minimal Makefile loading for explicit target rules, prerequisites,
+    semicolon recipes, and tab-indented recipes.
   - Termination when recipe command returns non-zero.
   - Diagnostics for missing rule and circular dependency detection.
 
@@ -41,7 +44,7 @@ This repository now includes a baseline harness:
 - `tests/posix-core/lmk_runner.c`
 
 The harness builds a tiny `libmake` runner and checks both `make` and
-`libmake` for:
+`libmake` against the same Makefile fixtures for:
 
 - Basic build success
 - Up-to-date no-op behavior
@@ -120,6 +123,8 @@ The MCP server relies on two flags added to the `libmake` binary:
 
 - `./libmake --dump-graph` — serialize the build graph as JSON
 - `./libmake --dry-run <target>` — explain rebuild decisions as JSON
+- `./libmake -f Makefile [target]` — load a Makefile subset and build the
+  requested or first non-special target
 
 # Code Coverage
 

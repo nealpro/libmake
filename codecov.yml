@@ -15,6 +15,5 @@ comment:
   require_changes: false
 
 ignore:
-  - "tests/**"
   - "*.o"
   - "libmake"

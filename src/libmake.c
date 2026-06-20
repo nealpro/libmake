@@ -2,6 +2,7 @@
 #include "dag.h"
 #include "exec.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +10,7 @@
 
 struct lmk {
 	dag_t *dag;
+	char *default_target;
 };
 
 lmk_t *lmk_create(void)
@@ -17,6 +19,10 @@ lmk_t *lmk_create(void)
 	if (!lmk)
 		return NULL;
 	lmk->dag = dag_create();
+	if (!lmk->dag) {
+		free(lmk);
+		return NULL;
+	}
 	return lmk;
 }
 
@@ -25,17 +31,315 @@ void lmk_free(lmk_t *lmk)
 	if (!lmk)
 		return;
 	dag_free(lmk->dag);
+	free(lmk->default_target);
 	free(lmk);
+}
+
+static bool is_special_target(const char *target) { return target[0] == '.'; }
+
+static int maybe_set_default_target(lmk_t *lmk, const char *target)
+{
+	if (lmk->default_target || is_special_target(target))
+		return 0;
+
+	lmk->default_target = strdup(target);
+	return lmk->default_target ? 0 : 1;
+}
+
+int lmk_rule_checked(lmk_t *lmk, const char *target, const char **deps,
+		     size_t num_deps, const char **commands,
+		     size_t num_commands)
+{
+	dag_node_t *node = dag_add_node(lmk->dag, target);
+	if (!node)
+		return 1;
+	node->has_rule = true;
+	if (maybe_set_default_target(lmk, target) != 0)
+		return 1;
+	for (size_t i = 0; i < num_deps; i++)
+		if (!dag_add_edge(lmk->dag, target, deps[i]))
+			return 1;
+	for (size_t i = 0; i < num_commands; i++)
+		if (!dag_node_add_command(node, commands[i]))
+			return 1;
+	return 0;
 }
 
 void lmk_rule(lmk_t *lmk, const char *target, const char **deps,
 	      size_t num_deps, const char **commands, size_t num_commands)
 {
-	dag_node_t *node = dag_add_node(lmk->dag, target);
-	for (size_t i = 0; i < num_deps; i++)
-		dag_add_edge(lmk->dag, target, deps[i]);
-	for (size_t i = 0; i < num_commands; i++)
-		dag_node_add_command(node, commands[i]);
+	(void)lmk_rule_checked(lmk, target, deps, num_deps, commands,
+			       num_commands);
+}
+
+const char *lmk_default_target(lmk_t *lmk) { return lmk->default_target; }
+
+typedef struct {
+	char **items;
+	size_t count;
+	size_t capacity;
+} string_list_t;
+
+static void string_list_free(string_list_t *list)
+{
+	for (size_t i = 0; i < list->count; i++)
+		free(list->items[i]);
+	free(list->items);
+	list->items = NULL;
+	list->count = 0;
+	list->capacity = 0;
+}
+
+static int string_list_push(string_list_t *list, const char *text)
+{
+	if (list->count == list->capacity) {
+		size_t new_capacity = list->capacity ? list->capacity * 2 : 4;
+		char **new_items =
+			realloc(list->items, new_capacity * sizeof(char *));
+		if (!new_items)
+			return 1;
+		list->items = new_items;
+		list->capacity = new_capacity;
+	}
+	list->items[list->count] = strdup(text);
+	if (!list->items[list->count])
+		return 1;
+	list->count++;
+	return 0;
+}
+
+static void string_list_move(string_list_t *dst, string_list_t *src)
+{
+	string_list_free(dst);
+	*dst = *src;
+	src->items = NULL;
+	src->count = 0;
+	src->capacity = 0;
+}
+
+static char *read_makefile_line(FILE *file)
+{
+	size_t capacity = 256;
+	size_t len = 0;
+	char *line = malloc(capacity);
+	int ch;
+
+	if (!line)
+		return NULL;
+
+	while ((ch = fgetc(file)) != EOF) {
+		if (len + 1 == capacity) {
+			size_t new_capacity = capacity * 2;
+			char *new_line = realloc(line, new_capacity);
+			if (!new_line) {
+				free(line);
+				return NULL;
+			}
+			line = new_line;
+			capacity = new_capacity;
+		}
+		line[len++] = (char)ch;
+		if (ch == '\n')
+			break;
+	}
+
+	if (len == 0 && ch == EOF) {
+		free(line);
+		return NULL;
+	}
+
+	line[len] = '\0';
+	return line;
+}
+
+static void chomp(char *line)
+{
+	size_t len = strlen(line);
+
+	while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+		line[--len] = '\0';
+}
+
+static char *skip_blank(char *s)
+{
+	while (*s && isblank((unsigned char)*s))
+		s++;
+	return s;
+}
+
+static void trim_right(char *s)
+{
+	size_t len = strlen(s);
+
+	while (len > 0 && isblank((unsigned char)s[len - 1]))
+		s[--len] = '\0';
+}
+
+static char *trim(char *s)
+{
+	s = skip_blank(s);
+	trim_right(s);
+	return s;
+}
+
+static void strip_comment(char *s)
+{
+	for (; *s; s++) {
+		if (*s == '#') {
+			*s = '\0';
+			return;
+		}
+	}
+}
+
+static int tokenize_words(char *text, string_list_t *out)
+{
+	char *p = text;
+
+	while (*p) {
+		char *start;
+
+		while (*p && isblank((unsigned char)*p))
+			p++;
+		if (!*p)
+			break;
+
+		start = p;
+		while (*p && !isblank((unsigned char)*p))
+			p++;
+		if (*p)
+			*p++ = '\0';
+
+		if (string_list_push(out, start) != 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int add_command_to_targets(lmk_t *lmk, const string_list_t *targets,
+				  const char *command)
+{
+	const char *commands[] = {command};
+
+	for (size_t i = 0; i < targets->count; i++) {
+		if (lmk_rule_checked(lmk, targets->items[i], NULL, 0, commands,
+				     1) != 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int parse_rule_line(lmk_t *lmk, char *line, string_list_t *current,
+			   const char *path, size_t lineno)
+{
+	string_list_t targets = {0};
+	string_list_t deps = {0};
+	char *semicolon = strchr(line, ';');
+	char *command = NULL;
+	char *colon;
+	int ret = 1;
+
+	if (semicolon) {
+		*semicolon = '\0';
+		command = trim(semicolon + 1);
+	}
+
+	strip_comment(line);
+	colon = strchr(line, ':');
+	if (!colon) {
+		char *content = trim(line);
+		if (*content == '\0')
+			return 0;
+		fprintf(stderr, "libmake: %s:%zu: expected ':' in rule\n", path,
+			lineno);
+		return 1;
+	}
+
+	*colon = '\0';
+	if (tokenize_words(trim(line), &targets) != 0 ||
+	    tokenize_words(trim(colon + 1), &deps) != 0) {
+		fprintf(stderr, "libmake: %s:%zu: out of memory\n", path,
+			lineno);
+		goto out;
+	}
+
+	if (targets.count == 0) {
+		fprintf(stderr, "libmake: %s:%zu: rule has no target\n", path,
+			lineno);
+		goto out;
+	}
+
+	for (size_t i = 0; i < targets.count; i++) {
+		if (lmk_rule_checked(lmk, targets.items[i],
+				     (const char **)deps.items, deps.count,
+				     NULL, 0) != 0) {
+			fprintf(stderr, "libmake: %s:%zu: out of memory\n",
+				path, lineno);
+			goto out;
+		}
+	}
+
+	if (command && *command) {
+		if (add_command_to_targets(lmk, &targets, command) != 0) {
+			fprintf(stderr, "libmake: %s:%zu: out of memory\n",
+				path, lineno);
+			goto out;
+		}
+	}
+
+	string_list_move(current, &targets);
+	ret = 0;
+
+out:
+	string_list_free(&targets);
+	string_list_free(&deps);
+	return ret;
+}
+
+int lmk_load_makefile(lmk_t *lmk, const char *path)
+{
+	FILE *file = fopen(path, "r");
+	string_list_t current_targets = {0};
+	char *line;
+	size_t lineno = 0;
+	int ret = 0;
+
+	if (!file) {
+		fprintf(stderr, "libmake: cannot open makefile '%s'\n", path);
+		return 1;
+	}
+
+	while ((line = read_makefile_line(file)) != NULL) {
+		lineno++;
+		chomp(line);
+
+		if (line[0] == '\t') {
+			if (current_targets.count == 0) {
+				fprintf(stderr,
+					"libmake: %s:%zu: recipe without "
+					"rule\n",
+					path, lineno);
+				ret = 1;
+			} else if (add_command_to_targets(lmk, &current_targets,
+							  line + 1) != 0) {
+				fprintf(stderr,
+					"libmake: %s:%zu: out of memory\n",
+					path, lineno);
+				ret = 1;
+			}
+		} else {
+			ret = parse_rule_line(lmk, line, &current_targets, path,
+					      lineno);
+		}
+
+		free(line);
+		if (ret != 0)
+			break;
+	}
+
+	string_list_free(&current_targets);
+	fclose(file);
+	return ret;
 }
 
 static time_t file_mtime(const char *path)
@@ -73,6 +377,12 @@ static int build_node(dag_node_t *node)
 		return 1;
 	}
 	node->visited = true;
+
+	if (!node->has_rule && file_mtime(node->name) == 0) {
+		fprintf(stderr, "libmake: no rule to make target '%s'\n",
+			node->name);
+		return 1;
+	}
 
 	for (size_t i = 0; i < node->num_deps; i++) {
 		int ret = build_node(node->deps[i]);
@@ -210,9 +520,18 @@ static int explain_node(dag_node_t *node, explain_list_t *plan,
 {
 	if (node->resolved)
 		return 0;
-	if (node->visited)
+	if (node->visited) {
+		fprintf(stderr, "libmake: circular dependency on '%s'\n",
+			node->name);
 		return 1;
+	}
 	node->visited = true;
+
+	if (!node->has_rule && file_mtime(node->name) == 0) {
+		fprintf(stderr, "libmake: no rule to make target '%s'\n",
+			node->name);
+		return 1;
+	}
 
 	for (size_t i = 0; i < node->num_deps; i++) {
 		int ret = explain_node(node->deps[i], plan, skipped);
@@ -287,8 +606,6 @@ int lmk_explain_build(lmk_t *lmk, const char *target, FILE *out)
 	lmk_reset(lmk);
 
 	if (ret != 0) {
-		fprintf(stderr, "libmake: circular dependency on '%s'\n",
-			target);
 		explain_list_free(&plan);
 		explain_list_free(&skipped);
 		return ret;
