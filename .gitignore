@@ -10,3 +10,7 @@ bin/
 libmake
 
 *.gcno
+
+# Proprietary reference
+make.txt
+

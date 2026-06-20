@@ -10,7 +10,7 @@ and basic diagnostics.
 
 ## POSIX error handling status (core)
 
-Current status against `make.txt` (POSIX `make` reference):
+Current status against POSIX `make` reference (proprietary, not in the repository):
 
 - Implemented now:
   - Recursive prerequisite traversal and rebuild-on-stale/missing target logic.
