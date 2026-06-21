@@ -4,10 +4,10 @@
 
 Embeddable build automation tool similar to GNU `make`.
 
-`libmake` currently implements a focused subset of POSIX `make`: explicit
-rules loaded through the C API or a minimal Makefile parser, ordered
-prerequisite traversal, mtime rebuild checks, recipe execution, and basic
-diagnostics.
+`libmake` currently implements an embeddable build graph API plus a focused
+subset of POSIX `make`: explicit rules loaded through C calls or a minimal
+Makefile parser, Makefile emission for supported graphs, ordered prerequisite
+traversal, mtime rebuild checks, recipe execution, and basic diagnostics.
 
 ## POSIX error handling status (core)
 
@@ -17,34 +17,32 @@ Current status against POSIX `make` reference (proprietary, not in the repositor
   - Recursive prerequisite traversal and rebuild-on-stale/missing target logic.
   - Minimal Makefile loading for explicit target rules, prerequisites,
     semicolon recipes, and tab-indented recipes.
+  - Makefile emission from embedded `lmk_rule()` graphs for differential
+    testing against system `make`.
   - Termination when recipe command returns non-zero.
   - Diagnostics for missing rule and circular dependency detection.
 
 - Missing / not yet POSIX-complete:
   - Command prefixes: `-` (ignore error), `@` (silent), `+` (force execution).
-  - Options: `-i`, `-k`, `-S`, `-n`, `-q`, `-s`, `-t`, `-r`, `-p`, `-e`, `-f`.
+  - Options: `-i`, `-k`, `-S`, `-n`, `-q`, `-s`, `-t`, `-r`, `-p`, `-e`.
   - Special targets: `.POSIX`, `.IGNORE`, `.SILENT`, `.PRECIOUS`, `.DEFAULT`,
     `.SUFFIXES`, `.SCCS_GET` behavior.
   - Required async signal cleanup semantics for in-progress targets.
   - Full macro expansion rules and include processing.
 
-- Internal robustness gaps to fix early:
-  - Allocation failures in DAG growth paths are not consistently surfaced.
-  - `lmk_rule()` currently does not return/report insertion failures.
-
 ## Differential testing strategy
 
 A practical way to progress toward POSIX usability is differential testing:
-compare behavior of system `make` and `libmake` on the same intended build
-logic, starting with core features used in most projects.
+construct graphs through the embeddable C API, emit equivalent Makefiles, and
+compare behavior of system `make`, `libmake -f`, and the embedded graph itself.
 
 This repository now includes a baseline harness:
 
 - `tests/posix-core/run.sh`
 - `tests/posix-core/lmk_runner.c`
 
-The harness builds a tiny `libmake` runner and checks both `make` and
-`libmake` against the same Makefile fixtures for:
+The harness builds a tiny `libmake` runner and checks emitted Makefiles plus
+secondary parser fixtures for:
 
 - Basic build success
 - Up-to-date no-op behavior
@@ -65,6 +63,10 @@ POSIX features as they are implemented.
 
 An MCP (Model Context Protocol) server exposes the build graph and build
 execution to LLMs, enabling agentic build debugging and tool orchestration.
+It treats `libmake` as a graph provider: the default provider is this repo's
+`./libmake`, which constructs its graph through embedded C calls, but
+`LIBMAKE_PROVIDER` can point at another executable with the same introspection
+contract.
 
 ### Setup
 
@@ -96,7 +98,8 @@ Configure in Claude Code or Claude Desktop (`settings.json`):
 }
 ```
 
-Set `LIBMAKE_PROJECT_DIR` to override the working directory if needed.
+Set `LIBMAKE_PROJECT_DIR` to override the working directory if needed. Set
+`LIBMAKE_PROVIDER` to point at a different graph-provider executable.
 
 ### Tools
 
@@ -106,6 +109,7 @@ Set `LIBMAKE_PROJECT_DIR` to override the working directory if needed.
 | `show_target` | Show full detail for a target (commands, deps, file mtime) |
 | `build` | Trigger a build and return exit code, stdout, stderr, duration |
 | `dry_run` | Explain what a build would do without executing |
+| `dump_makefile` | Emit the provider graph as a Makefile |
 | `visualize_graph` | Generate a Mermaid diagram of the dependency graph |
 | `clean` | Run `libmake clean` to remove build artifacts |
 
@@ -114,15 +118,22 @@ Set `LIBMAKE_PROJECT_DIR` to override the working directory if needed.
 | URI | Description |
 |-----|-------------|
 | `libmake://graph` | Full build graph as JSON |
+| `libmake://makefile` | Provider graph emitted as a Makefile |
 | `libmake://build-log` | Most recent build output |
 | `libmake://source/{filename}` | Read a source file from `src/` |
 
 ### CLI introspection flags
 
-The MCP server relies on two flags added to the `libmake` binary:
+The MCP server relies on the graph-provider CLI contract:
 
 - `./libmake --dump-graph` — serialize the build graph as JSON
+- `./libmake --dump-makefile` — serialize the build graph as a Makefile subset
 - `./libmake --dry-run <target>` — explain rebuild decisions as JSON
+- `./libmake <target>` — build a target
+
+The standalone CLI can also load the supported Makefile subset before running
+those provider actions:
+
 - `./libmake -f Makefile [target]` — load a Makefile subset and build the
   requested or first non-special target
 

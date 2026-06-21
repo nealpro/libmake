@@ -15,7 +15,7 @@ mcp = FastMCP("libmake")
 # ---------------------------------------------------------------------------
 
 PROJECT_DIR = Path(os.environ.get("LIBMAKE_PROJECT_DIR", os.getcwd()))
-BINARY = PROJECT_DIR / "libmake"
+PROVIDER = Path(os.environ.get("LIBMAKE_PROVIDER", PROJECT_DIR / "libmake"))
 SRC_DIR = PROJECT_DIR / "src"
 TIMEOUT = 30  # seconds
 
@@ -49,18 +49,42 @@ async def _run(
     return proc.returncode, stdout.decode(), stderr.decode()
 
 
-async def _dump_graph() -> dict:
-    """Run libmake --dump-graph and return parsed JSON."""
-    if not BINARY.exists():
-        raise RuntimeError(
-            f"libmake binary not found at {BINARY}. "
-            "Compile it first: cc -o libmake src/main.c src/dag.c "
-            "src/exec.c src/libmake.c"
-        )
-    rc, out, err = await _run(str(BINARY), "--dump-graph")
+def _provider_args(*args: str, makefile: str | None = None) -> list[str]:
+    cmd = [str(PROVIDER)]
+    if makefile:
+        cmd.extend(["-f", makefile])
+    cmd.extend(args)
+    return cmd
+
+
+def _provider_missing_error() -> str:
+    return (
+        f"libmake provider not found at {PROVIDER}. "
+        "Compile it first: cc -o libmake src/main.c src/dag.c "
+        "src/exec.c src/libmake.c"
+    )
+
+
+async def _dump_graph(makefile: str | None = None) -> dict:
+    """Run provider --dump-graph and return parsed JSON."""
+    if not PROVIDER.exists():
+        raise RuntimeError(_provider_missing_error())
+    rc, out, err = await _run(*_provider_args("--dump-graph", makefile=makefile))
     if rc != 0:
         raise RuntimeError(f"--dump-graph failed (exit {rc}): {err}")
     return json.loads(out)
+
+
+async def _dump_makefile(makefile: str | None = None) -> str:
+    """Run provider --dump-makefile and return Makefile text."""
+    if not PROVIDER.exists():
+        raise RuntimeError(_provider_missing_error())
+    rc, out, err = await _run(
+        *_provider_args("--dump-makefile", makefile=makefile)
+    )
+    if rc != 0:
+        raise RuntimeError(f"--dump-makefile failed (exit {rc}): {err}")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -69,9 +93,9 @@ async def _dump_graph() -> dict:
 
 
 @mcp.tool()
-async def list_targets() -> str:
+async def list_targets(makefile: str | None = None) -> str:
     """List all build targets with their dependency and command counts."""
-    graph = await _dump_graph()
+    graph = await _dump_graph(makefile)
     rows = []
     for node in graph["nodes"]:
         rows.append(
@@ -85,9 +109,9 @@ async def list_targets() -> str:
 
 
 @mcp.tool()
-async def show_target(target: str) -> str:
+async def show_target(target: str, makefile: str | None = None) -> str:
     """Show full detail for a single build target: commands, deps, and file mtime."""
-    graph = await _dump_graph()
+    graph = await _dump_graph(makefile)
     for node in graph["nodes"]:
         if node["name"] == target:
             # Add file mtime if the target file exists
@@ -105,17 +129,17 @@ async def show_target(target: str) -> str:
 
 
 @mcp.tool()
-async def build(target: str) -> str:
+async def build(target: str, makefile: str | None = None) -> str:
     """Trigger a build for the given target and return structured results."""
     global _last_build_log
-    if not BINARY.exists():
+    if not PROVIDER.exists():
         return json.dumps(
             {
-                "error": "libmake binary not found. Compile it first."
+                "error": "libmake provider not found. Compile it first."
             }
         )
     start = time.monotonic()
-    rc, out, err = await _run(str(BINARY), target)
+    rc, out, err = await _run(*_provider_args(target, makefile=makefile))
     duration = time.monotonic() - start
     result = {
         "exit_code": rc,
@@ -128,24 +152,37 @@ async def build(target: str) -> str:
 
 
 @mcp.tool()
-async def dry_run(target: str) -> str:
+async def dry_run(target: str, makefile: str | None = None) -> str:
     """Explain what a build would do without executing anything."""
-    if not BINARY.exists():
+    if not PROVIDER.exists():
         return json.dumps(
             {
-                "error": "libmake binary not found. Compile it first."
+                "error": "libmake provider not found. Compile it first."
             }
         )
-    rc, out, err = await _run(str(BINARY), "--dry-run", target)
+    rc, out, err = await _run(
+        *_provider_args("--dry-run", target, makefile=makefile)
+    )
     if rc != 0:
         return json.dumps({"error": err.strip(), "exit_code": rc})
     return out  # already JSON
 
 
 @mcp.tool()
-async def visualize_graph(target: str | None = None) -> str:
+async def dump_makefile(makefile: str | None = None) -> str:
+    """Emit the provider graph as a Makefile."""
+    try:
+        return await _dump_makefile(makefile)
+    except RuntimeError as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+async def visualize_graph(
+    target: str | None = None, makefile: str | None = None
+) -> str:
     """Generate a Mermaid diagram of the build graph (or a subgraph rooted at target)."""
-    graph = await _dump_graph()
+    graph = await _dump_graph(makefile)
     nodes_by_name = {n["name"]: n for n in graph["nodes"]}
 
     if target:
@@ -179,15 +216,15 @@ async def visualize_graph(target: str | None = None) -> str:
 
 
 @mcp.tool()
-async def clean() -> str:
+async def clean(makefile: str | None = None) -> str:
     """Run 'libmake clean' to remove build artifacts."""
-    if not BINARY.exists():
+    if not PROVIDER.exists():
         return json.dumps(
             {
-                "error": "libmake binary not found. Compile it first."
+                "error": "libmake provider not found. Compile it first."
             }
         )
-    rc, out, err = await _run(str(BINARY), "clean")
+    rc, out, err = await _run(*_provider_args("clean", makefile=makefile))
     return json.dumps(
         {"exit_code": rc, "stdout": out, "stderr": err}, indent=2
     )
@@ -203,6 +240,12 @@ async def graph_resource() -> str:
     """The full build graph as JSON."""
     graph = await _dump_graph()
     return json.dumps(graph, indent=2)
+
+
+@mcp.resource("libmake://makefile")
+async def makefile_resource() -> str:
+    """The provider graph emitted as a Makefile."""
+    return await _dump_makefile()
 
 
 @mcp.resource("libmake://build-log")

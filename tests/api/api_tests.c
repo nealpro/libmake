@@ -83,6 +83,21 @@ static char *dump_graph(lmk_t *lmk)
 	return buf;
 }
 
+static int dump_makefile(lmk_t *lmk, char **makefile)
+{
+	FILE *out = tmpfile();
+	int ret;
+
+	if (!out) {
+		perror("tmpfile");
+		exit(1);
+	}
+	ret = lmk_dump_makefile(lmk, out);
+	*makefile = read_stream(out);
+	fclose(out);
+	return ret;
+}
+
 static int explain_build(lmk_t *lmk, const char *target, char **json)
 {
 	FILE *out = tmpfile();
@@ -123,6 +138,97 @@ static void test_dump_graph_json(void)
 
 	free(json);
 	lmk_free(lmk);
+}
+
+static void test_dump_makefile(void)
+{
+	const char *expected = "all: out\n"
+			       "\n"
+			       "out: in\n"
+			       "\tcp in out\n";
+	lmk_t *lmk = lmk_create();
+	char *makefile;
+
+	assert_true(lmk_rule(lmk, "all", (const char *[]){"out"}, 1, NULL, 0) ==
+			    0,
+		    "all rule should be added");
+	assert_true(lmk_rule(lmk, "out", (const char *[]){"in"}, 1,
+			     (const char *[]){"cp in out"}, 1) == 0,
+		    "out rule should be added");
+	assert_true(dump_makefile(lmk, &makefile) == 0,
+		    "Makefile dump should succeed");
+	assert_eq_str(makefile, expected, "Makefile dump should be stable");
+
+	free(makefile);
+	lmk_free(lmk);
+}
+
+static void test_dump_makefile_rejects_unsupported_names(void)
+{
+	lmk_t *bad_colon = lmk_create();
+	lmk_t *bad_space = lmk_create();
+	char *makefile;
+
+	assert_true(lmk_rule(bad_colon, "bad:target", NULL, 0, NULL, 0) == 0,
+		    "unsupported target should still be accepted in graph");
+	assert_true(dump_makefile(bad_colon, &makefile) != 0,
+		    "Makefile dump should reject colon in target");
+	assert_eq_str(makefile, "",
+		      "failed Makefile dump should not emit partial content");
+	free(makefile);
+
+	assert_true(lmk_rule(bad_space, "out", (const char *[]){"my input"}, 1,
+			     (const char *[]){"cp 'my input' out"}, 1) == 0,
+		    "space dependency should still be accepted in graph");
+	assert_true(dump_makefile(bad_space, &makefile) != 0,
+		    "Makefile dump should reject internal whitespace");
+	assert_eq_str(makefile, "",
+		      "failed Makefile dump should not emit partial content");
+
+	free(makefile);
+	lmk_free(bad_colon);
+	lmk_free(bad_space);
+}
+
+static void test_makefile_round_trip(void)
+{
+	const char *expected =
+		"{\n"
+		"  \"nodes\": [\n"
+		"    {\"name\": \"all\", \"commands\": [], \"deps\": "
+		"[\"out\"]},\n"
+		"    {\"name\": \"out\", \"commands\": [\"cp in out\"], "
+		"\"deps\": [\"in\"]},\n"
+		"    {\"name\": \"in\", \"commands\": [], \"deps\": []}\n"
+		"  ]\n"
+		"}\n";
+	lmk_t *source = lmk_create();
+	lmk_t *loaded = lmk_create();
+	char *makefile;
+	char *json;
+
+	assert_true(lmk_rule(source, "all", (const char *[]){"out"}, 1, NULL,
+			     0) == 0,
+		    "source all rule should be added");
+	assert_true(lmk_rule(source, "out", (const char *[]){"in"}, 1,
+			     (const char *[]){"cp in out"}, 1) == 0,
+		    "source out rule should be added");
+	assert_true(lmk_rule(source, "in", NULL, 0, NULL, 0) == 0,
+		    "source input rule should be added");
+
+	assert_true(dump_makefile(source, &makefile) == 0,
+		    "source Makefile dump should succeed");
+	write_file("roundtrip.mk", makefile);
+	free(makefile);
+
+	assert_true(lmk_load_makefile(loaded, "roundtrip.mk") == 0,
+		    "loading dumped Makefile should succeed");
+	json = dump_graph(loaded);
+	assert_eq_str(json, expected, "round-tripped graph should match");
+
+	free(json);
+	lmk_free(source);
+	lmk_free(loaded);
 }
 
 static void test_explain_build(void)
@@ -282,6 +388,9 @@ int main(int argc, char **argv)
 	}
 
 	test_dump_graph_json();
+	test_dump_makefile();
+	test_dump_makefile_rejects_unsupported_names();
+	test_makefile_round_trip();
 	test_explain_build();
 	test_missing_and_cycles();
 	test_reset_and_shared_dependency();

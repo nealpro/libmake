@@ -46,9 +46,8 @@ static int maybe_set_default_target(lmk_t *lmk, const char *target)
 	return lmk->default_target ? 0 : 1;
 }
 
-int lmk_rule_checked(lmk_t *lmk, const char *target, const char **deps,
-		     size_t num_deps, const char **commands,
-		     size_t num_commands)
+int lmk_rule(lmk_t *lmk, const char *target, const char **deps, size_t num_deps,
+	     const char **commands, size_t num_commands)
 {
 	dag_node_t *node = dag_add_node(lmk->dag, target);
 	if (!node)
@@ -63,13 +62,6 @@ int lmk_rule_checked(lmk_t *lmk, const char *target, const char **deps,
 		if (!dag_node_add_command(node, commands[i]))
 			return 1;
 	return 0;
-}
-
-void lmk_rule(lmk_t *lmk, const char *target, const char **deps,
-	      size_t num_deps, const char **commands, size_t num_commands)
-{
-	(void)lmk_rule_checked(lmk, target, deps, num_deps, commands,
-			       num_commands);
 }
 
 const char *lmk_default_target(lmk_t *lmk) { return lmk->default_target; }
@@ -222,8 +214,7 @@ static int add_command_to_targets(lmk_t *lmk, const string_list_t *targets,
 	const char *commands[] = {command};
 
 	for (size_t i = 0; i < targets->count; i++) {
-		if (lmk_rule_checked(lmk, targets->items[i], NULL, 0, commands,
-				     1) != 0)
+		if (lmk_rule(lmk, targets->items[i], NULL, 0, commands, 1) != 0)
 			return 1;
 	}
 	return 0;
@@ -270,9 +261,8 @@ static int parse_rule_line(lmk_t *lmk, char *line, string_list_t *current,
 	}
 
 	for (size_t i = 0; i < targets.count; i++) {
-		if (lmk_rule_checked(lmk, targets.items[i],
-				     (const char **)deps.items, deps.count,
-				     NULL, 0) != 0) {
+		if (lmk_rule(lmk, targets.items[i], (const char **)deps.items,
+			     deps.count, NULL, 0) != 0) {
 			fprintf(stderr, "libmake: %s:%zu: out of memory\n",
 				path, lineno);
 			goto out;
@@ -478,6 +468,102 @@ void lmk_dump_graph_json(lmk_t *lmk, FILE *out)
 		fputc('\n', out);
 	}
 	fputs("  ]\n}\n", out);
+}
+
+static bool makefile_name_safe(const char *s)
+{
+	if (!s || !*s)
+		return false;
+
+	for (; *s; s++) {
+		if (isspace((unsigned char)*s))
+			return false;
+		switch (*s) {
+		case ':':
+		case '#':
+			return false;
+		default:
+			break;
+		}
+	}
+	return true;
+}
+
+static bool makefile_command_safe(const char *s)
+{
+	if (!s)
+		return false;
+
+	for (; *s; s++) {
+		if (*s == '\n' || *s == '\r')
+			return false;
+	}
+	return true;
+}
+
+int lmk_dump_makefile(lmk_t *lmk, FILE *out)
+{
+	dag_t *dag = lmk->dag;
+	bool wrote_rule = false;
+
+	for (size_t i = 0; i < dag->num_nodes; i++) {
+		dag_node_t *n = dag->nodes[i];
+
+		if (!n->has_rule)
+			continue;
+		if (!makefile_name_safe(n->name)) {
+			fprintf(stderr,
+				"libmake: cannot emit unsupported target "
+				"name '%s'\n",
+				n->name);
+			return 1;
+		}
+		for (size_t d = 0; d < n->num_deps; d++) {
+			if (!makefile_name_safe(n->deps[d]->name)) {
+				fprintf(stderr,
+					"libmake: cannot emit unsupported "
+					"dependency name '%s'\n",
+					n->deps[d]->name);
+				return 1;
+			}
+		}
+		for (size_t c = 0; c < n->num_commands; c++) {
+			if (!makefile_command_safe(n->commands[c])) {
+				fprintf(stderr,
+					"libmake: cannot emit unsupported "
+					"command for target '%s'\n",
+					n->name);
+				return 1;
+			}
+		}
+	}
+
+	for (size_t i = 0; i < dag->num_nodes; i++) {
+		dag_node_t *n = dag->nodes[i];
+
+		if (!n->has_rule)
+			continue;
+
+		if (wrote_rule)
+			fputc('\n', out);
+		wrote_rule = true;
+
+		fputs(n->name, out);
+		fputc(':', out);
+		for (size_t d = 0; d < n->num_deps; d++) {
+			fputc(' ', out);
+			fputs(n->deps[d]->name, out);
+		}
+		fputc('\n', out);
+
+		for (size_t c = 0; c < n->num_commands; c++) {
+			fputc('\t', out);
+			fputs(n->commands[c], out);
+			fputc('\n', out);
+		}
+	}
+
+	return 0;
 }
 
 typedef struct {

@@ -3,18 +3,19 @@
 #include <stdio.h>
 #include <string.h>
 
-static void setup_rules(lmk_t *lmk);
+static int setup_rules(lmk_t *lmk);
 static void usage(const char *prog)
 {
 	fprintf(stderr,
-		"usage: %s [--dump-graph] [--dry-run] [-f makefile] "
-		"[target]\n",
+		"usage: %s [--dump-graph] [--dump-makefile] [--dry-run] "
+		"[-f makefile] [target]\n",
 		prog);
 }
 
 int main(int argc, char **argv)
 {
 	bool dump_graph = false;
+	bool dump_makefile = false;
 	bool dry_run = false;
 	const char *makefile = NULL;
 	const char *target = NULL;
@@ -22,6 +23,8 @@ int main(int argc, char **argv)
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--dump-graph") == 0) {
 			dump_graph = true;
+		} else if (strcmp(argv[i], "--dump-makefile") == 0) {
+			dump_makefile = true;
 		} else if (strcmp(argv[i], "--dry-run") == 0) {
 			dry_run = true;
 		} else if (strcmp(argv[i], "-f") == 0) {
@@ -50,13 +53,15 @@ int main(int argc, char **argv)
 			lmk_free(lmk);
 			return 1;
 		}
-	} else {
-		setup_rules(lmk);
+	} else if (setup_rules(lmk) != 0) {
+		fprintf(stderr, "libmake: out of memory\n");
+		lmk_free(lmk);
+		return 1;
 	}
 
-	if (!target)
+	if (!target && !dump_graph && !dump_makefile)
 		target = lmk_default_target(lmk);
-	if (!target) {
+	if (!target && !dump_graph && !dump_makefile) {
 		fprintf(stderr, "libmake: no default target\n");
 		lmk_free(lmk);
 		return 1;
@@ -65,6 +70,8 @@ int main(int argc, char **argv)
 	int ret = 0;
 	if (dump_graph) {
 		lmk_dump_graph_json(lmk, stdout);
+	} else if (dump_makefile) {
+		ret = lmk_dump_makefile(lmk, stdout);
 	} else if (dry_run) {
 		ret = lmk_explain_build(lmk, target, stdout);
 	} else {
@@ -75,32 +82,44 @@ int main(int argc, char **argv)
 	return ret;
 }
 
-static void setup_rules(lmk_t *lmk)
+static int setup_rules(lmk_t *lmk)
 {
 
-	lmk_rule(lmk, "all", (const char *[]){"libmake"}, 1, NULL, 0);
+	if (lmk_rule(lmk, "all", (const char *[]){"libmake"}, 1, NULL, 0) != 0)
+		return 1;
 
-	lmk_rule(lmk, "clean", NULL, 0, (const char *[]){"rm -f libmake *.o"},
-		 1);
+	if (lmk_rule(lmk, "clean", NULL, 0,
+		     (const char *[]){"rm -f libmake *.o"}, 1) != 0)
+		return 1;
 
-	lmk_rule(
-		lmk, "libmake",
-		(const char *[]){"main.o", "dag.o", "exec.o", "libmake.o"}, 4,
-		(const char *[]){"cc -o libmake main.o dag.o exec.o libmake.o"},
-		1);
+	if (lmk_rule(lmk, "libmake",
+		     (const char *[]){"main.o", "dag.o", "exec.o", "libmake.o"},
+		     4,
+		     (const char *[]){
+			     "cc -o libmake main.o dag.o exec.o libmake.o"},
+		     1) != 0)
+		return 1;
 
-	lmk_rule(lmk, "main.o", (const char *[]){"src/main.c", "src/libmake.h"},
-		 2, (const char *[]){"cc -c src/main.c -o main.o"}, 1);
+	if (lmk_rule(lmk, "main.o",
+		     (const char *[]){"src/main.c", "src/libmake.h"}, 2,
+		     (const char *[]){"cc -c src/main.c -o main.o"}, 1) != 0)
+		return 1;
 
-	lmk_rule(lmk, "dag.o", (const char *[]){"src/dag.c", "src/dag.h"}, 2,
-		 (const char *[]){"cc -c src/dag.c -o dag.o"}, 1);
+	if (lmk_rule(lmk, "dag.o", (const char *[]){"src/dag.c", "src/dag.h"},
+		     2, (const char *[]){"cc -c src/dag.c -o dag.o"}, 1) != 0)
+		return 1;
 
-	lmk_rule(lmk, "exec.o",
-		 (const char *[]){"src/exec.c", "src/exec.h", "src/dag.h"}, 3,
-		 (const char *[]){"cc -c src/exec.c -o exec.o"}, 1);
+	if (lmk_rule(lmk, "exec.o",
+		     (const char *[]){"src/exec.c", "src/exec.h", "src/dag.h"},
+		     3, (const char *[]){"cc -c src/exec.c -o exec.o"}, 1) != 0)
+		return 1;
 
-	lmk_rule(lmk, "libmake.o",
-		 (const char *[]){"src/libmake.c", "src/libmake.h", "src/dag.h",
-				  "src/exec.h"},
-		 4, (const char *[]){"cc -c src/libmake.c -o libmake.o"}, 1);
+	if (lmk_rule(lmk, "libmake.o",
+		     (const char *[]){"src/libmake.c", "src/libmake.h",
+				      "src/dag.h", "src/exec.h"},
+		     4, (const char *[]){"cc -c src/libmake.c -o libmake.o"},
+		     1) != 0)
+		return 1;
+
+	return 0;
 }

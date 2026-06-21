@@ -84,7 +84,7 @@ jobs:
 
       - name: Collect coverage
         run: |
-          lcov --capture --directory .coverage --output-file lcov.info
+          lcov --capture --directory .coverage --output-file lcov.info --rc geninfo_unexecuted_blocks=1
           lcov --list lcov.info
           grep -E 'SF:.*/tests/api/api_tests\.c$' lcov.info
           grep -E 'SF:.*/tests/posix-core/lmk_runner\.c$' lcov.info

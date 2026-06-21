@@ -54,24 +54,6 @@ set -e
 echo "$status"
 }
 
-run_lmk_status()
-{
-dir=$1
-target=${2:-}
-set +e
-(
-cd "$dir"
-if [ "$target" ]; then
-"$runner" Makefile "$target" >/dev/null 2>&1
-else
-"$runner" Makefile >/dev/null 2>&1
-fi
-)
-status=$?
-set -e
-echo "$status"
-}
-
 run_lmk_cli_status()
 {
 dir=$1
@@ -88,6 +70,35 @@ fi
 status=$?
 set -e
 echo "$status"
+}
+
+run_lmk_embed_status()
+{
+dir=$1
+scenario=$2
+target=${3:-}
+set +e
+(
+cd "$dir"
+if [ "$target" ]; then
+"$runner" build "$scenario" "$target" >/dev/null 2>&1
+else
+"$runner" build "$scenario" >/dev/null 2>&1
+fi
+)
+status=$?
+set -e
+echo "$status"
+}
+
+emit_scenario_makefile()
+{
+dir=$1
+scenario=$2
+(
+cd "$dir"
+"$runner" emit "$scenario" > Makefile
+)
 }
 
 fail()
@@ -111,7 +122,7 @@ dst=$2
 cp -R "$src" "$dst"
 }
 
-echo "[1/5] building libmake differential runners"
+echo "[1/6] building libmake differential runners"
 mkdir -p "$obj_dir"
 "$cc" $cflags -I"$repo_dir/src" -c \
 "$repo_dir/tests/posix-core/lmk_runner.c" -o "$obj_dir/lmk_runner.o"
@@ -134,52 +145,165 @@ mkdir -p "$obj_dir"
 "$obj_dir/dag.o" \
 "$obj_dir/exec.o"
 
-echo "[2/5] basic build + up-to-date + stale-rebuild"
+echo "[2/6] embedded graph emission: basic build + stale rebuild"
 base_basic="$tmp_root/base-basic"
 mkdir -p "$base_basic"
-cat > "$base_basic/Makefile" <<'MK'
-all: out.txt
-
-out.txt: in.txt ; cp in.txt out.txt
-MK
 echo "v1" > "$base_basic/in.txt"
 
 make_dir="$tmp_root/make-basic"
-lmk_dir="$tmp_root/lmk-basic"
+cli_dir="$tmp_root/cli-basic"
+embed_dir="$tmp_root/embed-basic"
 copy_fixture "$base_basic" "$make_dir"
-copy_fixture "$base_basic" "$lmk_dir"
+copy_fixture "$base_basic" "$cli_dir"
+copy_fixture "$base_basic" "$embed_dir"
+emit_scenario_makefile "$make_dir" basic
+emit_scenario_makefile "$cli_dir" basic
+emit_scenario_makefile "$embed_dir" basic
 
 assert_eq "$(run_make_status "$make_dir" all)" "0" "make basic initial build"
-assert_eq "$(run_lmk_status "$lmk_dir" all)" "0" "libmake basic initial build"
-assert_eq "$(run_lmk_cli_status "$lmk_dir" all)" "0" "libmake CLI -f target"
+assert_eq "$(run_lmk_cli_status "$cli_dir" all)" "0" "libmake CLI initial build"
+assert_eq "$(run_lmk_embed_status "$embed_dir" basic all)" "0" \
+"embedded libmake initial build"
 
-[ -f "$make_dir/out.txt" ] || fail "make did not produce out.txt"
-[ -f "$lmk_dir/out.txt" ] || fail "libmake did not produce out.txt"
-assert_eq "$(cat "$make_dir/out.txt")" "$(cat "$lmk_dir/out.txt")" \
-"basic build output mismatch"
+assert_eq "$(cat "$make_dir/out.txt")" "$(cat "$cli_dir/out.txt")" \
+"make and CLI output mismatch"
+assert_eq "$(cat "$make_dir/out.txt")" "$(cat "$embed_dir/out.txt")" \
+"make and embedded output mismatch"
 
 make_before=$(get_mtime "$make_dir/out.txt")
-lmk_before=$(get_mtime "$lmk_dir/out.txt")
+cli_before=$(get_mtime "$cli_dir/out.txt")
+embed_before=$(get_mtime "$embed_dir/out.txt")
 assert_eq "$(run_make_status "$make_dir" all)" "0" "make up-to-date run"
-assert_eq "$(run_lmk_status "$lmk_dir" all)" "0" "libmake up-to-date run"
-make_after=$(get_mtime "$make_dir/out.txt")
-lmk_after=$(get_mtime "$lmk_dir/out.txt")
-assert_eq "$make_before" "$make_after" "make rebuilt unexpectedly"
-assert_eq "$lmk_before" "$lmk_after" "libmake rebuilt unexpectedly"
+assert_eq "$(run_lmk_cli_status "$cli_dir" all)" "0" "CLI up-to-date run"
+assert_eq "$(run_lmk_embed_status "$embed_dir" basic all)" "0" \
+"embedded up-to-date run"
+assert_eq "$make_before" "$(get_mtime "$make_dir/out.txt")" \
+"make rebuilt unexpectedly"
+assert_eq "$cli_before" "$(get_mtime "$cli_dir/out.txt")" \
+"CLI rebuilt unexpectedly"
+assert_eq "$embed_before" "$(get_mtime "$embed_dir/out.txt")" \
+"embedded rebuilt unexpectedly"
 
 sleep 1
 echo "v2" > "$make_dir/in.txt"
-echo "v2" > "$lmk_dir/in.txt"
+echo "v2" > "$cli_dir/in.txt"
+echo "v2" > "$embed_dir/in.txt"
 assert_eq "$(run_make_status "$make_dir" all)" "0" "make stale rebuild"
-assert_eq "$(run_lmk_status "$lmk_dir" all)" "0" "libmake stale rebuild"
-make_new=$(get_mtime "$make_dir/out.txt")
-lmk_new=$(get_mtime "$lmk_dir/out.txt")
-[ "$make_new" -gt "$make_after" ] || fail "make did not rebuild stale target"
-[ "$lmk_new" -gt "$lmk_after" ] || fail "libmake did not rebuild stale target"
-assert_eq "$(cat "$make_dir/out.txt")" "$(cat "$lmk_dir/out.txt")" \
-"stale rebuild output mismatch"
+assert_eq "$(run_lmk_cli_status "$cli_dir" all)" "0" "CLI stale rebuild"
+assert_eq "$(run_lmk_embed_status "$embed_dir" basic all)" "0" \
+"embedded stale rebuild"
+[ "$(get_mtime "$make_dir/out.txt")" -gt "$make_before" ] ||
+fail "make did not rebuild stale target"
+[ "$(get_mtime "$cli_dir/out.txt")" -gt "$cli_before" ] ||
+fail "CLI did not rebuild stale target"
+[ "$(get_mtime "$embed_dir/out.txt")" -gt "$embed_before" ] ||
+fail "embedded libmake did not rebuild stale target"
 
-echo "[3/5] parser rules: comments, repeated deps, tab and semicolon recipes"
+echo "[3/6] embedded graph emission: repeated rules and shared dependencies"
+base_complex="$tmp_root/base-complex"
+mkdir -p "$base_complex"
+echo "input" > "$base_complex/input.txt"
+echo "input" > "$base_complex/input"
+
+make_repeated="$tmp_root/make-repeated"
+cli_repeated="$tmp_root/cli-repeated"
+embed_repeated="$tmp_root/embed-repeated"
+copy_fixture "$base_complex" "$make_repeated"
+copy_fixture "$base_complex" "$cli_repeated"
+copy_fixture "$base_complex" "$embed_repeated"
+emit_scenario_makefile "$make_repeated" repeated
+emit_scenario_makefile "$cli_repeated" repeated
+emit_scenario_makefile "$embed_repeated" repeated
+
+assert_eq "$(run_make_status "$make_repeated")" "0" "make repeated default"
+assert_eq "$(run_lmk_cli_status "$cli_repeated")" "0" "CLI repeated default"
+assert_eq "$(run_lmk_embed_status "$embed_repeated" repeated)" "0" \
+"embedded repeated default"
+assert_eq "$(cat "$make_repeated/first")" "$(cat "$cli_repeated/first")" \
+"repeated first output mismatch"
+assert_eq "$(cat "$make_repeated/first")" "$(cat "$embed_repeated/first")" \
+"embedded repeated first output mismatch"
+assert_eq "$(cat "$make_repeated/second")" "$(cat "$cli_repeated/second")" \
+"repeated second output mismatch"
+assert_eq "$(cat "$make_repeated/second")" "$(cat "$embed_repeated/second")" \
+"embedded repeated second output mismatch"
+
+make_shared="$tmp_root/make-shared"
+cli_shared="$tmp_root/cli-shared"
+embed_shared="$tmp_root/embed-shared"
+copy_fixture "$base_complex" "$make_shared"
+copy_fixture "$base_complex" "$cli_shared"
+copy_fixture "$base_complex" "$embed_shared"
+emit_scenario_makefile "$make_shared" shared
+emit_scenario_makefile "$cli_shared" shared
+emit_scenario_makefile "$embed_shared" shared
+
+assert_eq "$(run_make_status "$make_shared" all)" "0" "make shared build"
+assert_eq "$(run_lmk_cli_status "$cli_shared" all)" "0" "CLI shared build"
+assert_eq "$(run_lmk_embed_status "$embed_shared" shared all)" "0" \
+"embedded shared build"
+assert_eq "$(cat "$make_shared/left")" "$(cat "$cli_shared/left")" \
+"shared left output mismatch"
+assert_eq "$(cat "$make_shared/left")" "$(cat "$embed_shared/left")" \
+"embedded shared left output mismatch"
+assert_eq "$(cat "$make_shared/right")" "$(cat "$cli_shared/right")" \
+"shared right output mismatch"
+assert_eq "$(cat "$make_shared/right")" "$(cat "$embed_shared/right")" \
+"embedded shared right output mismatch"
+
+echo "[4/6] embedded graph emission: failure paths"
+base_empty="$tmp_root/base-empty"
+mkdir -p "$base_empty"
+
+make_missing="$tmp_root/make-missing"
+cli_missing="$tmp_root/cli-missing"
+embed_missing="$tmp_root/embed-missing"
+copy_fixture "$base_empty" "$make_missing"
+copy_fixture "$base_empty" "$cli_missing"
+copy_fixture "$base_empty" "$embed_missing"
+emit_scenario_makefile "$make_missing" basic
+emit_scenario_makefile "$cli_missing" basic
+
+make_status=$(run_make_status "$make_missing" missing)
+cli_status=$(run_lmk_cli_status "$cli_missing" missing)
+embed_status=$(run_lmk_embed_status "$embed_missing" basic missing)
+[ "$make_status" -ne 0 ] || fail "make missing target should fail"
+[ "$cli_status" -ne 0 ] || fail "CLI missing target should fail"
+[ "$embed_status" -ne 0 ] || fail "embedded missing target should fail"
+
+make_dep="$tmp_root/make-missing-dep"
+cli_dep="$tmp_root/cli-missing-dep"
+embed_dep="$tmp_root/embed-missing-dep"
+copy_fixture "$base_empty" "$make_dep"
+copy_fixture "$base_empty" "$cli_dep"
+copy_fixture "$base_empty" "$embed_dep"
+emit_scenario_makefile "$make_dep" missing-dep
+emit_scenario_makefile "$cli_dep" missing-dep
+
+make_status=$(run_make_status "$make_dep" all)
+cli_status=$(run_lmk_cli_status "$cli_dep" all)
+embed_status=$(run_lmk_embed_status "$embed_dep" missing-dep all)
+[ "$make_status" -ne 0 ] || fail "make missing dependency should fail"
+[ "$cli_status" -ne 0 ] || fail "CLI missing dependency should fail"
+[ "$embed_status" -ne 0 ] || fail "embedded missing dependency should fail"
+
+make_fail="$tmp_root/make-fail"
+cli_fail="$tmp_root/cli-fail"
+embed_fail="$tmp_root/embed-fail"
+copy_fixture "$base_empty" "$make_fail"
+copy_fixture "$base_empty" "$cli_fail"
+copy_fixture "$base_empty" "$embed_fail"
+emit_scenario_makefile "$make_fail" fail
+emit_scenario_makefile "$cli_fail" fail
+
+make_status=$(run_make_status "$make_fail" all)
+cli_status=$(run_lmk_cli_status "$cli_fail" all)
+embed_status=$(run_lmk_embed_status "$embed_fail" fail all)
+[ "$make_status" -ne 0 ] || fail "make failing recipe should fail"
+[ "$cli_status" -ne 0 ] || fail "CLI failing recipe should fail"
+[ "$embed_status" -ne 0 ] || fail "embedded failing recipe should fail"
+
+echo "[5/6] parser fixtures remain secondary"
 base_parser="$tmp_root/base-parser"
 mkdir -p "$base_parser"
 cat > "$base_parser/Makefile" <<'MK'
@@ -196,50 +320,50 @@ MK
 echo "input" > "$base_parser/input.txt"
 
 make_parser="$tmp_root/make-parser"
-lmk_parser="$tmp_root/lmk-parser"
+cli_parser="$tmp_root/cli-parser"
 copy_fixture "$base_parser" "$make_parser"
-copy_fixture "$base_parser" "$lmk_parser"
+copy_fixture "$base_parser" "$cli_parser"
 
-assert_eq "$(run_make_status "$make_parser")" "0" "make default target"
-assert_eq "$(run_lmk_status "$lmk_parser")" "0" "libmake default target"
-assert_eq "$(run_lmk_cli_status "$lmk_parser")" "0" "libmake CLI default target"
-assert_eq "$(cat "$make_parser/first")" "$(cat "$lmk_parser/first")" \
-"default target first output mismatch"
-assert_eq "$(cat "$make_parser/second")" "$(cat "$lmk_parser/second")" \
-"default target second output mismatch"
+assert_eq "$(run_make_status "$make_parser")" "0" "make parser default"
+assert_eq "$(run_lmk_cli_status "$cli_parser")" "0" "CLI parser default"
+assert_eq "$(cat "$make_parser/first")" "$(cat "$cli_parser/first")" \
+"parser first output mismatch"
+assert_eq "$(cat "$make_parser/second")" "$(cat "$cli_parser/second")" \
+"parser second output mismatch"
 
-echo "[4/5] missing-target error behavior"
-base_missing="$tmp_root/base-missing"
-mkdir -p "$base_missing"
-cat > "$base_missing/Makefile" <<'MK'
-all: ; @:
+base_space="$tmp_root/base-space-parser"
+mkdir -p "$base_space"
+cat > "$base_space/Makefile" <<'MK'
+all: out
+
+out: my input
+	cat my input > out
 MK
-make_missing="$tmp_root/make-missing"
-lmk_missing="$tmp_root/lmk-missing"
-copy_fixture "$base_missing" "$make_missing"
-copy_fixture "$base_missing" "$lmk_missing"
+echo "my" > "$base_space/my"
+echo "input" > "$base_space/input"
 
-make_status=$(run_make_status "$make_missing" missing)
-lmk_status=$(run_lmk_status "$lmk_missing" missing)
-[ "$make_status" -ne 0 ] || fail "make missing target should fail"
-[ "$lmk_status" -ne 0 ] || fail "libmake missing target should fail"
+make_space="$tmp_root/make-space-parser"
+cli_space="$tmp_root/cli-space-parser"
+copy_fixture "$base_space" "$make_space"
+copy_fixture "$base_space" "$cli_space"
 
-echo "[5/5] recipe failure behavior"
-base_fail="$tmp_root/base-fail"
-mkdir -p "$base_fail"
-cat > "$base_fail/Makefile" <<'MK'
-all: bad
+assert_eq "$(run_make_status "$make_space" all)" "0" \
+"make whitespace parser fixture"
+assert_eq "$(run_lmk_cli_status "$cli_space" all)" "0" \
+"CLI whitespace parser fixture"
+assert_eq "$(cat "$make_space/out")" "$(cat "$cli_space/out")" \
+"whitespace parser output mismatch"
 
-bad: ; sh -c 'exit 7'
-MK
-make_fail="$tmp_root/make-fail"
-lmk_fail="$tmp_root/lmk-fail"
-copy_fixture "$base_fail" "$make_fail"
-copy_fixture "$base_fail" "$lmk_fail"
+if "$runner" emit space-name > "$tmp_root/space-name.mk" 2>/dev/null; then
+fail "embedded graph with internal-space dependency should not emit Makefile"
+fi
+[ ! -s "$tmp_root/space-name.mk" ] ||
+fail "failed internal-space emission should not write Makefile content"
 
-make_status=$(run_make_status "$make_fail" all)
-lmk_status=$(run_lmk_status "$lmk_fail" all)
-[ "$make_status" -ne 0 ] || fail "make failing recipe should fail"
-[ "$lmk_status" -ne 0 ] || fail "libmake failing recipe should fail"
+echo "[6/6] provider CLI can emit embedded Makefile"
+"$libmake" --dump-makefile > "$tmp_root/provider.mk"
+grep -E '^all: libmake$' "$tmp_root/provider.mk" >/dev/null
+grep -E '^libmake: main\.o dag\.o exec\.o libmake\.o$' \
+"$tmp_root/provider.mk" >/dev/null
 
 echo "PASS: core differential checks succeeded"

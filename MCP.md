@@ -1,6 +1,6 @@
 # libmake MCP Server
 
-An MCP (Model Context Protocol) server that exposes the libmake build system to LLMs. It lets an AI agent inspect the build graph, query targets, run builds, and read source files — all without touching the shell directly.
+An MCP (Model Context Protocol) server that exposes libmake graph providers to LLMs. It lets an AI agent inspect the build graph, query targets, run builds, emit Makefiles, and read source files — all without touching the shell directly.
 
 ## Setup
 
@@ -24,12 +24,26 @@ cd mcp && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 }
 ```
 
-**Prerequisite:** The `libmake` binary must be compiled before most tools will work:
+**Prerequisite:** A libmake graph-provider executable must be compiled before most tools will work. The default provider is this repo's `./libmake`:
 ```sh
 cc -o libmake src/main.c src/dag.c src/exec.c src/libmake.c
 ```
 
-The server reads `LIBMAKE_PROJECT_DIR` from the environment to locate the binary and source tree (defaults to the current working directory).
+The server reads:
+
+- `LIBMAKE_PROJECT_DIR` — working directory and source tree root (defaults to the current working directory)
+- `LIBMAKE_PROVIDER` — graph-provider executable (defaults to `$LIBMAKE_PROJECT_DIR/libmake`)
+
+A provider is expected to support:
+
+```sh
+provider --dump-graph
+provider --dump-makefile
+provider --dry-run <target>
+provider <target>
+```
+
+The default provider also accepts `-f <makefile>` before these actions, allowing MCP tools to inspect a supported Makefile subset without making Makefiles the primary model.
 
 ## Tools
 
@@ -37,7 +51,8 @@ The server reads `LIBMAKE_PROJECT_DIR` from the environment to locate the binary
 
 Lists all build targets with their dependency and command counts.
 
-**Parameters:** none
+**Parameters:**
+- `makefile` (string, optional) — load this Makefile through the provider before listing targets
 
 **Returns:** JSON array of objects:
 ```json
@@ -56,6 +71,7 @@ Shows full detail for a single target: its commands, dependencies, and the file'
 
 **Parameters:**
 - `target` (string) — target name, e.g. `"libmake"` or `"main.o"`
+- `makefile` (string, optional) — load this Makefile through the provider first
 
 **Returns:** JSON object:
 ```json
@@ -78,6 +94,7 @@ Explains what a build would do without executing any commands. Uses libmake's bu
 
 **Parameters:**
 - `target` (string) — target to explain
+- `makefile` (string, optional) — load this Makefile through the provider first
 
 **Returns:** JSON with `plan` (steps that would run) and `skipped` (up-to-date targets):
 ```json
@@ -104,6 +121,7 @@ Triggers a build for the given target and returns the result. The output is also
 
 **Parameters:**
 - `target` (string) — target to build, e.g. `"all"`, `"main.o"`
+- `makefile` (string, optional) — load this Makefile through the provider first
 
 **Returns:** JSON with exit code, stdout, stderr, and duration:
 ```json
@@ -117,11 +135,23 @@ Triggers a build for the given target and returns the result. The output is also
 
 ---
 
+### `dump_makefile`
+
+Emits the provider graph as a Makefile in the supported subset. This is useful when the provider constructs its graph through embedded C API calls and the caller wants a `make`-compatible differential artifact.
+
+**Parameters:**
+- `makefile` (string, optional) — load this Makefile through the provider first, then re-emit the loaded graph
+
+**Returns:** Makefile text, or a JSON error object.
+
+---
+
 ### `clean`
 
 Runs the `clean` target to remove build artifacts (`libmake` binary and `*.o` files).
 
-**Parameters:** none
+**Parameters:**
+- `makefile` (string, optional) — load this Makefile through the provider first
 
 **Returns:** Same shape as `build` — exit code, stdout, stderr.
 
@@ -133,6 +163,7 @@ Generates a [Mermaid](https://mermaid.js.org/) `graph TD` diagram of the full bu
 
 **Parameters:**
 - `target` (string, optional) — if provided, only the subgraph reachable from this target is included
+- `makefile` (string, optional) — load this Makefile through the provider first
 
 **Returns:** A Mermaid diagram string. Node names with `.` or `/` are sanitized to `_` for Mermaid compatibility, but the original names appear as labels.
 
@@ -168,6 +199,17 @@ The full build graph as JSON, identical to what `libmake --dump-graph` produces.
 }
 ```
 
+### `libmake://makefile`
+
+The default provider graph emitted as a Makefile, identical to what `libmake --dump-makefile` produces.
+
+```make
+all: libmake
+
+libmake: main.o dag.o exec.o libmake.o
+	cc -o libmake main.o dag.o exec.o libmake.o
+```
+
 ### `libmake://build-log`
 
 The result of the most recent `build` tool call (in-memory, not persisted across server restarts). Returns `{"message": "No builds have been run yet."}` if no build has been triggered in the current session.
@@ -183,5 +225,5 @@ Returns the raw file contents, or `{"error": "File not found: src/..."}` if the 
 ## Error Handling
 
 - All tools return JSON error objects (`{"error": "..."}`) rather than raising exceptions, so the LLM always gets a parseable response.
-- If the `libmake` binary is missing, tools that need it return an error message with the compile command.
+- If the graph provider is missing, tools that need it return an error message with the compile command for the default provider.
 - Subprocess calls time out after 30 seconds.

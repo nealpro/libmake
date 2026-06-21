@@ -17,13 +17,10 @@ void lmk_free(lmk_t *lmk);
  * num_deps   — number of dependencies
  * commands   — array of shell commands (may be NULL if num_commands == 0)
  * num_commands — number of commands
+ * Returns 0 on success, non-zero on allocation failure.
  */
-int lmk_rule_checked(lmk_t *lmk, const char *target, const char **deps,
-		     size_t num_deps, const char **commands,
-		     size_t num_commands);
-
-void lmk_rule(lmk_t *lmk, const char *target, const char **deps,
-	      size_t num_deps, const char **commands, size_t num_commands);
+int lmk_rule(lmk_t *lmk, const char *target, const char **deps, size_t num_deps,
+	     const char **commands, size_t num_commands);
 
 /*
  * Load target rules from a makefile subset:
@@ -55,6 +52,14 @@ void lmk_reset(lmk_t *lmk);
  * Write the build graph as JSON to the given stream.
  */
 void lmk_dump_graph_json(lmk_t *lmk, FILE *out);
+
+/*
+ * Write the build graph as a Makefile subset to the given stream.
+ *
+ * Returns 0 on success, non-zero if a target/dependency/command cannot be
+ * represented safely in the current Makefile subset.
+ */
+int lmk_dump_makefile(lmk_t *lmk, FILE *out);
 
 /*
  * Explain what a build would do without executing anything.
